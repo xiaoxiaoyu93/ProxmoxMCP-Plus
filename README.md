@@ -138,12 +138,23 @@ Before starting, ensure you have:
 
 ## Configuration
 
+### Environment variables (.env)
+
+The server automatically loads a `.env` file from the project root at startup. Existing
+environment variables still take precedence.
+
+Example `.env`:
+
+```bash
+PROXMOX_MCP_CONFIG=proxmox-config/config.json
+```
+
 ### Proxmox API Token Setup
 1. Log into your Proxmox web interface
 2. Navigate to Datacenter -> Permissions -> API Tokens
 3. Create a new API token:
    - Select a user (e.g., root@pam)
-   - Enter a token ID (e.g., "mcp-token")
+   - Enter a token ID (e.g. "mcp-token")
    - Uncheck "Privilege Separation" if you want full access
    - Save and copy both the token ID and secret
 
