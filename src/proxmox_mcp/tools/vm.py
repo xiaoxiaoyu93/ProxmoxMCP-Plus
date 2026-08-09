@@ -16,11 +16,22 @@ The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
 import ipaddress
-from typing import List, Optional, Any, Dict
+import json
+from typing import Any, Dict, List, Optional
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool
 from proxmox_mcp.tools.console.manager import VMConsoleManager
+
+
+def _as_dict(maybe: Any) -> Dict:
+    """Return dict; unwrap {'data': dict}; else {}."""
+    if isinstance(maybe, dict):
+        data = maybe.get("data")
+        if isinstance(data, dict):
+            return data
+        return maybe
+    return {}
 
 class VMTools(ProxmoxTool):
     """Tools for managing Proxmox VMs.
@@ -54,6 +65,14 @@ class VMTools(ProxmoxTool):
         self.console_manager = VMConsoleManager(proxmox_api)
         self.command_policy = command_policy
 
+    # ---------- error / output ----------
+    def _json_fmt(self, data: Any) -> List[Content]:
+        """Return raw JSON string (never touch project formatters)."""
+        return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
+
+    def _err(self, action: str, e: Exception) -> List[Content]:
+        self._handle_error(action, e)
+
     def _get_cluster_vm_inventory(self) -> Optional[list[dict[str, Any]]]:
         try:
             resources = self.proxmox.cluster.resources.get(type="vm")
@@ -86,6 +105,39 @@ class VMTools(ProxmoxTool):
                 },
             })
         return result if result else None
+
+    def get_vm_config(self, node: str, vmid: str) -> List[Content]:
+        """Return the full configuration of a QEMU virtual machine.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: VM ID as a string.
+        """
+        try:
+            config = _as_dict(self.proxmox.nodes(node).qemu(vmid).config.get())
+            config.setdefault("vmid", vmid)
+            return self._json_fmt(config)
+        except Exception as e:
+            return self._err("get_vm_config", e)
+
+    def set_vm_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of a QEMU VM.
+
+        Uses PUT /nodes/{node}/qemu/{vmid}/config. Pass an empty string to
+        clear the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: VM ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_vm_description", e)
 
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
@@ -190,6 +242,7 @@ class VMTools(ProxmoxTool):
         storage: Optional[str] = None,
         ostype: Optional[str] = None,
         network_bridge: Optional[str] = None,
+        pool: Optional[str] = None,
     ) -> List[Content]:
         """Create a new virtual machine with specified configuration.
         
@@ -203,6 +256,7 @@ class VMTools(ProxmoxTool):
             storage: Storage name (e.g., 'local-lvm', 'vm-storage'). If None, will auto-detect
             ostype: OS type (e.g., 'l26' for Linux, 'win10' for Windows). Default: 'l26'
             network_bridge: Network bridge name (e.g., 'vmbr0'). If None, defaults to 'vmbr0'
+            pool: Proxmox resource pool to create the VM in. If None, no pool is specified
             
         Returns:
             List of Content objects containing creation result
@@ -301,6 +355,9 @@ class VMTools(ProxmoxTool):
             
             # Add storage configuration
             vm_config.update(vm_config_storage)
+
+            if pool:
+                vm_config["pool"] = pool
             
             # Create the VM
             task_result = self.proxmox.nodes(node).qemu.create(**vm_config)

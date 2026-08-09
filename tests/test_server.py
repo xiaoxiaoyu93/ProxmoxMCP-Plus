@@ -9,8 +9,10 @@ from typing import Any, cast
 from unittest.mock import Mock, patch
 
 from mcp.server.fastmcp.exceptions import ToolError
-from proxmox_mcp.server import ProxmoxMCPServer
+
+import proxmox_mcp.server as server_module
 from proxmox_mcp.config.loader import load_config
+from proxmox_mcp.server import ProxmoxMCPServer
 
 
 def _schema_contains_key(value, key):
@@ -90,6 +92,16 @@ def test_server_initialization(server, mock_proxmox):
     mock_proxmox.assert_called_once()
 
 
+def test_server_close_releases_job_store_and_proxmox_manager(server):
+    server.job_store.close = Mock()
+    server.proxmox_manager.close = Mock()
+
+    server.close()
+
+    server.job_store.close.assert_called_once()
+    server.proxmox_manager.close.assert_called_once()
+
+
 def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):
     """Test FastMCP receives configured host/port for HTTP transports."""
     config_path = tmp_path / "config_http.json"
@@ -124,6 +136,127 @@ def test_mcp_env_overrides_file_transport_for_docker(tmp_path, monkeypatch):
     assert config.mcp.host == "0.0.0.0"
     assert config.mcp.port == 9001
     assert config.mcp.transport == "STREAMABLE"
+
+
+def test_mcp_env_overrides_transport_security(tmp_path, monkeypatch):
+    """Reverse proxy deployments can configure MCP Host and Origin validation via env vars."""
+    config_path = tmp_path / "config_stdio.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {"host": "127.0.0.1", "port": 8000, "transport": "STDIO"},
+    }))
+    monkeypatch.setenv("MCP_DNS_REBINDING_PROTECTION", "true")
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "mcp.example.com:*, localhost:*")
+    monkeypatch.setenv("MCP_ALLOWED_ORIGINS", "https://mcp.example.com, http://localhost:*")
+
+    config = load_config(str(config_path))
+
+    assert config.mcp.dns_rebinding_protection is True
+    assert config.mcp.allowed_hosts == ["mcp.example.com:*", "localhost:*"]
+    assert config.mcp.allowed_origins == ["https://mcp.example.com", "http://localhost:*"]
+
+
+def test_env_boolean_overrides_accept_common_values(monkeypatch, tmp_path):
+    monkeypatch.setenv("PROXMOX_HOST", "test.proxmox.com")
+    monkeypatch.setenv("PROXMOX_USER", "test@pve")
+    monkeypatch.setenv("PROXMOX_TOKEN_NAME", "test-token")
+    monkeypatch.setenv("PROXMOX_TOKEN_VALUE", "secret")
+    monkeypatch.setenv("PROXMOX_VERIFY_SSL", "YES")
+    monkeypatch.setenv("PROXMOX_DEV_MODE", "on")
+    monkeypatch.setenv("PROXMOX_API_TUNNEL_ENABLED", "1")
+    monkeypatch.setenv("PROXMOX_API_TUNNEL_SSH_HOST", "jump-host")
+    monkeypatch.setenv("COMMAND_POLICY_REQUIRE_APPROVAL_TOKEN", "true")
+    monkeypatch.setenv("COMMAND_POLICY_HIGH_RISK_REQUIRE_APPROVAL_TOKEN", "yes")
+    monkeypatch.setenv("PROXMOX_JOBS_SQLITE_PATH", str(tmp_path / "jobs.sqlite3"))
+
+    config = load_config(None)
+
+    assert config.proxmox.verify_ssl is True
+    assert config.security.dev_mode is True
+    assert config.api_tunnel is not None
+    assert config.api_tunnel.enabled is True
+    assert config.command_policy.require_approval_token is True
+    assert config.command_policy.high_risk_require_approval_token is True
+
+
+def test_env_boolean_overrides_reject_invalid_values(monkeypatch):
+    monkeypatch.setenv("PROXMOX_HOST", "test.proxmox.com")
+    monkeypatch.setenv("PROXMOX_USER", "test@pve")
+    monkeypatch.setenv("PROXMOX_TOKEN_NAME", "test-token")
+    monkeypatch.setenv("PROXMOX_TOKEN_VALUE", "secret")
+    monkeypatch.setenv("PROXMOX_VERIFY_SSL", "maybe")
+
+    with pytest.raises(ValueError, match="PROXMOX_VERIFY_SSL must be a boolean value"):
+        load_config(None)
+
+
+def test_server_leaves_transport_security_to_sdk_when_unconfigured(tmp_path):
+    """Unconfigured deployments keep the MCP SDK's default transport-security behavior."""
+    config_path = tmp_path / "config_http_default_security.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {"host": "0.0.0.0", "port": 8000, "transport": "STREAMABLE"},
+    }))
+
+    config = load_config(str(config_path))
+    http_server = object.__new__(ProxmoxMCPServer)
+    http_server.config = config
+
+    assert http_server._build_transport_security() is None
+
+
+def test_server_applies_configured_transport_security(mock_proxmox, tmp_path):
+    """Configured Host and Origin allowlists are passed through to FastMCP."""
+    config_path = tmp_path / "config_http_security.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {
+            "host": "0.0.0.0",
+            "port": 8000,
+            "transport": "STREAMABLE",
+            "dns_rebinding_protection": True,
+            "allowed_hosts": ["mcp.example.com:*", "localhost:*"],
+            "allowed_origins": ["https://mcp.example.com"],
+        },
+    }))
+
+    http_server = ProxmoxMCPServer(str(config_path))
+    security = http_server.mcp.settings.transport_security
+
+    assert security is not None
+    assert security.enable_dns_rebinding_protection is True
+    assert security.allowed_hosts == ["mcp.example.com:*", "localhost:*"]
+    assert security.allowed_origins == ["https://mcp.example.com"]
+
+
+def test_server_requires_supported_mcp_sdk_for_configured_transport_security(
+    mock_proxmox,
+    tmp_path,
+    monkeypatch,
+):
+    """Configured transport security should fail clearly on older MCP SDKs."""
+    config_path = tmp_path / "config_http_security_old_sdk.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {
+            "host": "0.0.0.0",
+            "port": 8000,
+            "transport": "STREAMABLE",
+            "allowed_hosts": ["mcp.example.com:*"],
+        },
+    }))
+    monkeypatch.setattr(server_module, "TransportSecuritySettings", None)
+
+    with pytest.raises(RuntimeError, match="mcp>=1.24.0"):
+        ProxmoxMCPServer(str(config_path))
 
 
 def test_server_uses_local_api_tunnel_endpoint(mock_proxmox, tmp_path):
@@ -211,7 +344,11 @@ async def test_list_tools(server):
     assert "update_container_ssh_keys" not in tool_names
     # LXC config tools (no SSH required)
     assert "get_container_config" in tool_names
+    assert "set_container_description" in tool_names
     assert "get_container_ip" in tool_names
+    # VM config tool
+    assert "get_vm_config" in tool_names
+    assert "set_vm_description" in tool_names
 
 
 @pytest.mark.asyncio
@@ -298,6 +435,62 @@ async def test_get_node_status_offline_fallback(server, mock_proxmox):
     assert "Node: maserati" in text
     assert "Status: OFFLINE" in text
 
+
+@pytest.mark.asyncio
+async def test_get_node_status_injects_online_when_api_lacks_status(server, mock_proxmox):
+    """Regression for issue #100 Bug 4A.
+
+    The /nodes/{node}/status endpoint does NOT return a `status` field, so the
+    formatter used to always display "UNKNOWN". When the API response is
+    missing the field we should inject "online" because a successful response
+    is itself proof the node is reachable.
+    """
+    mock_proxmox.return_value.nodes.return_value.status.get.return_value = {
+        "uptime": 123456,
+        "cpuinfo": {"cpus": 8},
+    }
+
+    response = await server.mcp.call_tool("get_node_status", {"node": "node1"})
+    text = response[0].text
+    assert "Status: ONLINE" in text
+    assert "UNKNOWN" not in text
+
+
+@pytest.mark.asyncio
+async def test_get_node_status_reads_cpu_cores_from_cpuinfo(server, mock_proxmox):
+    """Regression for issue #100 Bug 4B.
+
+    The /nodes/{node}/status endpoint reports the CPU count under
+    cpuinfo.cpus, not as a top-level `maxcpu` field. The formatter used to
+    show "N/A" for CPU Cores.
+    """
+    mock_proxmox.return_value.nodes.return_value.status.get.return_value = {
+        "status": "online",
+        "uptime": 0,
+        "cpuinfo": {"cpus": 16},
+    }
+
+    response = await server.mcp.call_tool("get_node_status", {"node": "node1"})
+    text = response[0].text
+    assert "CPU Cores: 16" in text
+    assert "CPU Cores: N/A" not in text
+
+
+@pytest.mark.asyncio
+async def test_get_node_status_falls_back_to_maxcpu(server, mock_proxmox):
+    """If cpuinfo is missing but maxcpu is present, maxcpu is used (forward
+    compatibility in case Proxmox ever returns a top-level maxcpu).
+    """
+    mock_proxmox.return_value.nodes.return_value.status.get.return_value = {
+        "status": "online",
+        "uptime": 0,
+        "maxcpu": 32,
+    }
+
+    response = await server.mcp.call_tool("get_node_status", {"node": "node1"})
+    text = response[0].text
+    assert "CPU Cores: 32" in text
+
 @pytest.mark.asyncio
 async def test_get_vms(server, mock_proxmox):
     """Test get_vms tool."""
@@ -379,6 +572,33 @@ async def test_get_vms_skips_offline_node(server, mock_proxmox):
     assert "vm1" in text
     assert "node1" in text
     assert "node2" not in text
+
+
+@pytest.mark.asyncio
+async def test_create_vm_passes_resource_pool_to_proxmox(server, mock_proxmox):
+    """create_vm should expose and forward the optional Proxmox resource pool."""
+    proxmox = mock_proxmox.return_value
+    node_api = proxmox.nodes.return_value
+    node_api.qemu.return_value.config.get.side_effect = RuntimeError("does not exist")
+    node_api.storage.get.return_value = [
+        {"storage": "local-lvm", "content": "images,rootdir", "type": "lvmthin"},
+    ]
+    node_api.qemu.create.return_value = "UPID:vm-create-pool"
+
+    await server.mcp.call_tool(
+        "create_vm",
+        {
+            "node": "node1",
+            "vmid": "210",
+            "name": "pool-vm",
+            "cpus": 2,
+            "memory": 2048,
+            "disk_size": 20,
+            "pool": "claude-lab",
+        },
+    )
+
+    assert node_api.qemu.create.call_args.kwargs["pool"] == "claude-lab"
 
 @pytest.mark.asyncio
 async def test_get_containers(server, mock_proxmox):
@@ -544,6 +764,28 @@ async def test_create_container_with_lxc_options(server, mock_proxmox):
     )
     assert "Start on boot: Yes" in text
     assert "Nesting enabled: Yes" in text
+
+
+@pytest.mark.asyncio
+async def test_create_container_passes_resource_pool_to_proxmox(server, mock_proxmox):
+    """create_container should expose and forward the optional Proxmox resource pool."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    proxmox.nodes.return_value.lxc.get.return_value = []
+    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-pool"
+
+    await server.mcp.call_tool(
+        "create_container",
+        {
+            "node": "node1",
+            "vmid": "211",
+            "ostemplate": "local:vztmpl/debian-12-standard.tar.zst",
+            "pool": "claude-lab",
+        },
+    )
+
+    assert proxmox.nodes.return_value.lxc.create.call_args.kwargs["pool"] == "claude-lab"
 
 @pytest.mark.asyncio
 async def test_create_container_default_lxc_options(server, mock_proxmox):
@@ -1143,6 +1385,140 @@ async def test_get_container_config_missing_parameters(server):
     """get_container_config raises ToolError when required parameters are missing."""
     with pytest.raises(ToolError):
         await server.mcp.call_tool("get_container_config", {})
+
+
+# ---------------------------------------------------------------------------
+# set_container_description
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_container_description(server, mock_proxmox):
+    """set_container_description PUTs description and echoes it back."""
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.config.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "set_container_description",
+        {"node": "node1", "vmid": "101", "description": "GitLab Runner host"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "101"
+    assert result["node"] == "node1"
+    assert result["description"] == "GitLab Runner host"
+    ct_api.config.put.assert_called_with(description="GitLab Runner host")
+
+
+@pytest.mark.asyncio
+async def test_set_container_description_missing_parameters(server):
+    """set_container_description raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("set_container_description", {"node": "node1", "vmid": "101"})
+
+
+@pytest.mark.asyncio
+async def test_set_container_description_api_error(server, mock_proxmox):
+    """set_container_description surfaces Proxmox API errors via RuntimeError consistently."""
+    mock_proxmox.return_value.nodes.return_value.lxc.return_value.config.put.side_effect = (
+        Exception("permission denied")
+    )
+
+    with pytest.raises(ToolError, match="set_container_description"):
+        await server.mcp.call_tool(
+            "set_container_description",
+            {"node": "node1", "vmid": "999", "description": "x"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# get_vm_config
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_vm_config(server, mock_proxmox):
+    """get_vm_config returns full VM config JSON including vmid."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.config.get.return_value = {
+        "name": "ubuntu",
+        "cores": 2,
+        "memory": 4096,
+        "scsi0": "local-lvm:vm-100-disk-0,size=20G",
+        "net0": "virtio=CE:11:53:B7:B6:79,bridge=vmbr0",
+        "bios": "ovmf",
+        "onboot": 1,
+    }
+
+    response = await server.mcp.call_tool(
+        "get_vm_config", {"node": "node1", "vmid": "100"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["name"] == "ubuntu"
+    assert result["cores"] == 2
+    assert result["memory"] == 4096
+    assert result["vmid"] == "100"
+    assert "scsi0" in result
+
+
+@pytest.mark.asyncio
+async def test_get_vm_config_missing_parameters(server):
+    """get_vm_config raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_vm_config", {})
+
+
+@pytest.mark.asyncio
+async def test_get_vm_config_api_error(server, mock_proxmox):
+    """get_vm_config surfaces Proxmox API errors via RuntimeError consistently."""
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.config.get.side_effect = (
+        Exception("VM does not exist")
+    )
+
+    with pytest.raises(ToolError, match="get_vm_config"):
+        await server.mcp.call_tool("get_vm_config", {"node": "node1", "vmid": "999"})
+
+
+# ---------------------------------------------------------------------------
+# set_vm_description
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_vm_description(server, mock_proxmox):
+    """set_vm_description PUTs description and echoes it back."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.config.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "set_vm_description",
+        {"node": "node1", "vmid": "100", "description": "Decommissioned"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "100"
+    assert result["node"] == "node1"
+    assert result["description"] == "Decommissioned"
+    vm_api.config.put.assert_called_with(description="Decommissioned")
+
+
+@pytest.mark.asyncio
+async def test_set_vm_description_missing_parameters(server):
+    """set_vm_description raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("set_vm_description", {"node": "node1", "vmid": "100"})
+
+
+@pytest.mark.asyncio
+async def test_set_vm_description_api_error(server, mock_proxmox):
+    """set_vm_description surfaces Proxmox API errors via RuntimeError consistently."""
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.config.put.side_effect = (
+        Exception("VM does not exist")
+    )
+
+    with pytest.raises(ToolError, match="set_vm_description"):
+        await server.mcp.call_tool(
+            "set_vm_description",
+            {"node": "node1", "vmid": "999", "description": "x"},
+        )
 
 
 # ---------------------------------------------------------------------------

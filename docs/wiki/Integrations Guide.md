@@ -2,6 +2,8 @@
 
 This guide covers the main ways to connect clients and platforms to ProxmoxMCP-Plus.
 
+For client-specific install snippets for Claude Desktop, Cursor, VS Code, Codex, OpenCode, Open WebUI, and generic MCP clients, start with [Client Setup](Client-Setup). This page focuses on transport patterns and HTTP integration details.
+
 ## Integration Patterns
 
 - `Direct MCP`: a client launches the server locally and talks over stdio
@@ -65,6 +67,14 @@ http://<docker-host>:8000/mcp
 
 The default OpenAPI service on port `8811` is not an MCP Streamable HTTP endpoint; MCP HTTP clients should use `/mcp` on the native MCP service.
 
+If the MCP HTTP service is reached through a reverse proxy or gateway, configure the expected external Host header:
+
+```bash
+MCP_DNS_REBINDING_PROTECTION=true
+MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:*
+MCP_ALLOWED_ORIGINS=https://mcp.example.com
+```
+
 ## OpenAPI Clients
 
 For HTTP-native clients, run the OpenAPI wrapper and connect to:
@@ -116,6 +126,7 @@ After connecting a client, verify:
 
 ## Related Pages
 
+- [Client Setup](Client-Setup)
 - [Operator Guide](Operator-Guide)
 - [Security Guide](Security-Guide)
 - [Troubleshooting](Troubleshooting)

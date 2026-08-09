@@ -32,6 +32,7 @@ from proxmox_mcp.tools.definitions import (
     GET_STORAGE_DESC,
     GET_VM_INTERFACES_DESC,
     GET_VMS_DESC,
+    GET_VM_CONFIG_DESC,
     LIST_JOBS_DESC,
     LIST_BACKUPS_DESC,
     LIST_ISOS_DESC,
@@ -43,6 +44,8 @@ from proxmox_mcp.tools.definitions import (
     RESTORE_BACKUP_DESC,
     RETRY_JOB_DESC,
     ROLLBACK_SNAPSHOT_DESC,
+    SET_CONTAINER_DESCRIPTION_DESC,
+    SET_VM_DESCRIPTION_DESC,
     SHUTDOWN_VM_DESC,
     START_CONTAINER_DESC,
     START_VM_DESC,
@@ -247,6 +250,16 @@ class VMToolsPlugin(RegistryPluginBase):
         def get_vms() -> Any:
             return self._wrap_sync(server, "get_vms", server.vm_tools.get_vms)()
 
+        @server.mcp.tool(description=GET_VM_CONFIG_DESC)
+        def get_vm_config(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+        ) -> Any:
+            return self._wrap_sync(server, "get_vm_config", server.vm_tools.get_vm_config)(
+                node=node,
+                vmid=vmid,
+            )
+
         @server.mcp.tool(description=GET_VM_INTERFACES_DESC)
         def get_vm_interfaces(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve1')")],
@@ -256,6 +269,19 @@ class VMToolsPlugin(RegistryPluginBase):
                 node=node,
                 vmid=vmid,
             )
+
+        @server.mcp.tool(description=SET_VM_DESCRIPTION_DESC)
+        def set_vm_description(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+        ) -> Any:
+            return self._wrap_sync(server, "set_vm_description", server.vm_tools.set_vm_description)(
+                node=node,
+                vmid=vmid,
+                description=description,
+            )
+
 
         @server.mcp.tool(description=CREATE_VM_DESC)
         def create_vm(
@@ -268,6 +294,7 @@ class VMToolsPlugin(RegistryPluginBase):
             storage: Annotated[Optional[str], Field(description="Storage name (optional, will auto-detect)", default=None)] = None,
             ostype: Annotated[Optional[str], Field(description="OS type (optional, default: 'l26' for Linux)", default=None)] = None,
             network_bridge: Annotated[Optional[str], Field(description="Network bridge name (optional, default: 'vmbr0')", default=None)] = None,
+            pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_vm", server.vm_tools.create_vm)(
                 node,
@@ -279,6 +306,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 storage,
                 ostype,
                 network_bridge,
+                pool,
             )
 
         @server.mcp.tool(description=CLONE_VM_DESC)
@@ -464,6 +492,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
             onboot: Annotated[bool, Field(description="Start container automatically when node boots", default=False)] = False,
             nesting: Annotated[bool, Field(description="Enable LXC nesting (features: nesting=1)", default=False)] = False,
             unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
+            pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_container", server.container_tools.create_container)(
                 node=node,
@@ -482,6 +511,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 onboot=onboot,
                 nesting=nesting,
                 unprivileged=unprivileged,
+                pool=pool,
             )
 
         @server.mcp.tool(description=DELETE_CONTAINER_DESC)
@@ -547,6 +577,20 @@ class ContainerToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_container_config", server.container_tools.get_container_config)(
                 node=node,
                 vmid=vmid,
+            )
+
+        @server.mcp.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
+        def set_container_description(
+            node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+        ) -> Any:
+            return self._wrap_sync(
+                server, "set_container_description", server.container_tools.set_container_description
+            )(
+                node=node,
+                vmid=vmid,
+                description=description,
             )
 
         @server.mcp.tool(description=GET_CONTAINER_IP_DESC)

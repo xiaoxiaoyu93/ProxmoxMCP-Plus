@@ -635,6 +635,7 @@ class ContainerTools(ProxmoxTool):
         onboot: bool = False,
         nesting: bool = False,
         unprivileged: bool = True,
+        pool: Optional[str] = None,
     ) -> List[Content]:
         """Create a new LXC container.
 
@@ -655,6 +656,7 @@ class ContainerTools(ProxmoxTool):
             onboot: Start container automatically when node boots (default: False)
             nesting: Enable LXC nesting feature (default: False)
             unprivileged: Create unprivileged container (default: True)
+            pool: Proxmox resource pool to create the container in (optional)
 
         Returns:
             List[Content] with creation result
@@ -723,6 +725,8 @@ class ContainerTools(ProxmoxTool):
                 ct_config["ssh-public-keys"] = ssh_public_keys
             if nesting:
                 ct_config["features"] = "nesting=1"
+            if pool:
+                ct_config["pool"] = pool
 
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)
@@ -926,6 +930,25 @@ class ContainerTools(ProxmoxTool):
             return self._json_fmt(config)
         except Exception as e:
             return self._err("get_container_config", e)
+
+    def set_container_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of an LXC container.
+
+        Uses PUT /nodes/{node}/lxc/{vmid}/config. Pass an empty string to clear
+        the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).lxc(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_container_description", e)
 
     def get_container_ip(self, node: str, vmid: str) -> List[Content]:
         """Return the current IP address(es) of a running LXC container.

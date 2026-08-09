@@ -16,6 +16,11 @@ from typing import Dict, Any
 import paramiko  # type: ignore[import-untyped]
 
 
+def _log_safe(value: object, max_length: int = 200) -> str:
+    text = str(value).replace("\r", "").replace("\n", "")
+    return text[:max_length]
+
+
 class ContainerConsoleManager:
     """Execute shell commands inside LXC containers via SSH + pct exec."""
 
@@ -37,14 +42,38 @@ class ContainerConsoleManager:
             ssh_cmd.extend(["-i", os.path.expanduser(key_file)])
         if getattr(self.ssh_cfg, "port", None):
             ssh_cmd.extend(["-p", str(self.ssh_cfg.port)])
+        if getattr(self.ssh_cfg, "user", None):
+            # Explicitly pass the SSH username. On Linux, OpenSSH often falls
+            # back to the current system user, but on Windows it falls back to
+            # the Windows login name, which rarely has access to the Proxmox
+            # host. Passing -l keeps behaviour consistent across platforms.
+            ssh_cmd.extend(["-l", self.ssh_cfg.user])
+        # `-o BatchMode=yes` makes OpenSSH fail immediately instead of waiting
+        # for interactive input (host key confirmation, password prompts,
+        # etc.) which is essential when the MCP server runs headless.
+        # `-o StrictHostKeyChecking=accept-new` silently trusts first-seen
+        # host keys so first-time connections do not block execution.
+        ssh_cmd.extend([
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+        ])
         # `--` ends OpenSSH option processing so a target accidentally starting
         # with "-" (e.g. a misconfigured host_overrides value) cannot be
         # reinterpreted as a flag like -oProxyCommand=...
         ssh_cmd.extend(["--", target, cmd])
 
-        self.logger.debug("Executing via OpenSSH client: %s", " ".join(shlex.quote(p) for p in ssh_cmd))
+        self.logger.debug(
+            "Executing command via OpenSSH client on target %s with %s arguments",
+            _log_safe(target),
+            len(ssh_cmd),
+        )
+        # `stdin=subprocess.DEVNULL` is required on Windows. Without it,
+        # OpenSSH inherits the MCP server's stdin pipe, blocks indefinitely
+        # reading from it, and the call hangs until the 70s timeout. This
+        # does not reproduce on Linux where stdin behaves differently.
         completed = subprocess.run(  # noqa: S603
             ssh_cmd,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=70,
@@ -80,7 +109,7 @@ class ContainerConsoleManager:
         # 2. Build pct exec command
         prefix = "sudo " if self.ssh_cfg.use_sudo else ""
         cmd = f"{prefix}/usr/sbin/pct exec {shlex.quote(str(vmid))} -- sh -c {shlex.quote(command)}"
-        self.logger.info("Executing on CT %s@%s: %s", vmid, node, command)
+        self.logger.info("Executing command on CT %s@%s", _log_safe(vmid), _log_safe(node))
         target = self._ssh_host(node)
 
         if self._use_system_ssh():
@@ -123,7 +152,7 @@ class ContainerConsoleManager:
                 "exit_code": exit_code,
             }
         except paramiko.SSHException as e:
-            self.logger.error("SSH error connecting to %s: %s", node, e)
+            self.logger.error("SSH error connecting to %s: %s", _log_safe(node), _log_safe(e))
             raise RuntimeError(f"SSH error connecting to node {node}: {e}") from e
         finally:
             client.close()

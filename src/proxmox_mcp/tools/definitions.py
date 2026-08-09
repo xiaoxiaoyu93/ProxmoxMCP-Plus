@@ -49,6 +49,31 @@ GET_VMS_DESC = """List all virtual machines across the cluster with their status
 Example:
 {"vmid": "100", "name": "ubuntu", "status": "running", "cpu": 2, "memory": 4096}"""
 
+GET_VM_CONFIG_DESC = """Get the full configuration of a QEMU virtual machine.
+
+Returns hardware configuration including CPU, memory, disk, network, BIOS type, boot order, and more.
+This is equivalent to get_container_config but for QEMU VMs.
+
+Parameters:
+node* - Host node name (e.g. 'pve')
+vmid* - VM ID number (e.g. '100')
+
+Example:
+{"vmid": "100", "name": "ubuntu", "cores": 2, "memory": 4096, "scsi0": "local-lvm:vm-100-disk-0,size=20G"}"""
+
+SET_VM_DESCRIPTION_DESC = """Set/replace the description (Notes field in the UI) of a QEMU VM.
+
+Uses PUT /nodes/{node}/qemu/{vmid}/config. Pass an empty string to clear the notes.
+
+Parameters:
+node*        - Host node name (e.g. 'pve')
+vmid*        - VM ID number (e.g. '100')
+description* - New notes text (replaces any existing notes)
+
+Example:
+set_vm_description node='pve' vmid='100' description='Decommissioned - see #123'
+"""
+
 GET_VM_INTERFACES_DESC = """Get VM network interfaces via QEMU guest agent.
 
 Parameters:
@@ -70,6 +95,7 @@ disk_size* - Disk size in GB (e.g. 10, 20, 50)
 storage - Storage name (optional, will auto-detect if not specified)
 ostype - OS type (optional, default: 'l26' for Linux)
 network_bridge - Network bridge name (optional, default: 'vmbr0')
+pool - Target Proxmox resource pool (optional)
 
 Examples:
 - Create VM with 1 CPU, 2GB RAM, 10GB disk: node='pve', vmid='200', name='test-vm', cpus=1, memory=2048, disk_size=10
@@ -215,6 +241,7 @@ start_after_create - Start container after creation (optional, default: false)
 onboot - Start container automatically on host boot (optional, default: false)
 nesting - Enable LXC nesting (optional, sets features='nesting=1', default: false)
 unprivileged - Create unprivileged container (optional, default: true)
+pool - Target Proxmox resource pool (optional)
 
 Examples:
 - Create Alpine container: node='pveZ3', vmid='200', ostemplate='local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz'
@@ -430,6 +457,19 @@ vmid* - Container ID (e.g. '101')
 
 Example:
 {"vmid": "101", "hostname": "valkey", "cores": 1, "memory": 1024, "net0": "name=eth0,..."}
+"""
+
+SET_CONTAINER_DESCRIPTION_DESC = """Set/replace the description (Notes field in the UI) of an LXC container.
+
+Uses PUT /nodes/{node}/lxc/{vmid}/config. Pass an empty string to clear the notes.
+
+Parameters:
+node*        - Proxmox node name (e.g. 'pve')
+vmid*        - Container ID (e.g. '101')
+description* - New notes text (replaces any existing notes)
+
+Example:
+set_container_description node='pve' vmid='101' description='GitLab Runner host (ct101-alpine)'
 """
 
 GET_CONTAINER_IP_DESC = """Get the current IP address(es) of a running LXC container.
