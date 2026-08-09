@@ -53,6 +53,7 @@ from proxmox_mcp.tools.definitions import (
     STOP_VM_DESC,
     UPDATE_CONTAINER_RESOURCES_DESC,
     UPDATE_CONTAINER_SSH_KEYS_DESC,
+    VmidField,
 )
 from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
 
@@ -253,7 +254,7 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=GET_VM_CONFIG_DESC)
         def get_vm_config(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '100')")],
         ) -> Any:
             return self._wrap_sync(server, "get_vm_config", server.vm_tools.get_vm_config)(
                 node=node,
@@ -263,7 +264,7 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=GET_VM_INTERFACES_DESC)
         def get_vm_interfaces(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve1')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '100')")],
         ) -> Any:
             return self._wrap_sync(server, "get_vm_interfaces", server.vm_tools.get_vm_interfaces)(
                 node=node,
@@ -273,7 +274,7 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=SET_VM_DESCRIPTION_DESC)
         def set_vm_description(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '100')")],
             description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
         ) -> Any:
             return self._wrap_sync(server, "set_vm_description", server.vm_tools.set_vm_description)(
@@ -286,7 +287,7 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=CREATE_VM_DESC)
         def create_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="New VM ID number (e.g. '200', '300')")],
+            vmid: Annotated[VmidField, Field(description="New VM ID number (e.g. '200', '300')")],
             name: Annotated[str, Field(description="VM name (e.g. 'my-new-vm', 'web-server')")],
             cpus: Annotated[int, Field(description="Number of CPU cores (e.g. 1, 2, 4)", ge=1, le=32)],
             memory: Annotated[int, Field(description="Memory size in MB (e.g. 2048 for 2GB)", ge=512, le=131072)],
@@ -312,8 +313,8 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=CLONE_VM_DESC)
         def clone_vm(
             node: Annotated[str, Field(description="Source host node name (e.g. 'pve')")],
-            source_vmid: Annotated[str, Field(description="Source VM ID number (e.g. '9000')", pattern=r"^\d+$")],
-            target_vmid: Annotated[str, Field(description="New VM ID number for the clone (e.g. '201')", pattern=r"^\d+$")],
+            source_vmid: Annotated[VmidField, Field(description="Source VM ID number (e.g. '9000')")],
+            target_vmid: Annotated[VmidField, Field(description="New VM ID number for the clone (e.g. '201')")],
             name: Annotated[Optional[str], Field(description="New VM name (optional)", default=None)] = None,
             target_node: Annotated[Optional[str], Field(description="Destination node name (optional)", default=None)] = None,
             full: Annotated[bool, Field(description="Create full clone (True) or linked clone (False)", default=True)] = True,
@@ -336,7 +337,7 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=EXECUTE_VM_COMMAND_DESC)
         async def execute_vm_command(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve1', 'proxmox-node2')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '100', '101')")],
             command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
         ) -> Any:
@@ -350,35 +351,35 @@ class VMToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=START_VM_DESC)
         def start_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "start_vm", server.vm_tools.start_vm)(node, vmid)
 
         @server.mcp.tool(description=STOP_VM_DESC)
         def stop_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "stop_vm", server.vm_tools.stop_vm)(node, vmid)
 
         @server.mcp.tool(description=SHUTDOWN_VM_DESC)
         def shutdown_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "shutdown_vm", server.vm_tools.shutdown_vm)(node, vmid)
 
         @server.mcp.tool(description=RESET_VM_DESC)
         def reset_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "reset_vm", server.vm_tools.reset_vm)(node, vmid)
 
         @server.mcp.tool(description=DELETE_VM_DESC)
         def delete_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM ID number (e.g. '998')")],
+            vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '998')")],
             force: Annotated[bool, Field(description="Force deletion even if VM is running", default=False)] = False,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
         ) -> Any:
@@ -477,7 +478,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=CREATE_CONTAINER_DESC)
         def create_container(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="Container ID number (e.g. '200')")],
+            vmid: Annotated[VmidField, Field(description="Container ID number (e.g. '200')")],
             ostemplate: Annotated[str, Field(description="OS template path (e.g. 'local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz')")],
             hostname: Annotated[Optional[str], Field(description="Container hostname", default=None)] = None,
             cores: Annotated[int, Field(description="Number of CPU cores", ge=1, default=1)] = 1,
@@ -549,7 +550,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
             @server.mcp.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
             def update_container_ssh_keys(
                 node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
-                vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+                vmid: Annotated[VmidField, Field(description="Container ID (e.g. '101')")],
                 public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
                 mode: Annotated[str, Field(description="'append' (default) or 'replace'", pattern="^(append|replace)$", default="append")] = "append",
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
@@ -572,7 +573,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=GET_CONTAINER_CONFIG_DESC)
         def get_container_config(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="Container ID (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "get_container_config", server.container_tools.get_container_config)(
                 node=node,
@@ -582,7 +583,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
         def set_container_description(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="Container ID (e.g. '101')")],
             description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
         ) -> Any:
             return self._wrap_sync(
@@ -596,7 +597,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=GET_CONTAINER_IP_DESC)
         def get_container_ip(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            vmid: Annotated[VmidField, Field(description="Container ID (e.g. '101')")],
         ) -> Any:
             return self._wrap_sync(server, "get_container_ip", server.container_tools.get_container_ip)(
                 node=node,
@@ -609,7 +610,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=LIST_SNAPSHOTS_DESC)
         def list_snapshots(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
-            vmid: Annotated[str, Field(description="VM or container ID (e.g. '100')")],
+            vmid: Annotated[VmidField, Field(description="VM or container ID (e.g. '100')")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' for VMs, 'lxc' for containers", default="qemu")] = "qemu",
         ) -> Any:
             return self._wrap_sync(server, "list_snapshots", server.snapshot_tools.list_snapshots)(
@@ -621,7 +622,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=CREATE_SNAPSHOT_DESC)
         def create_snapshot(
             node: Annotated[str, Field(description="Host node name")],
-            vmid: Annotated[str, Field(description="VM or container ID")],
+            vmid: Annotated[VmidField, Field(description="VM or container ID")],
             snapname: Annotated[str, Field(description="Snapshot name (no spaces)")],
             description: Annotated[Optional[str], Field(description="Optional description", default=None)] = None,
             vmstate: Annotated[bool, Field(description="Include memory state (VMs only)", default=False)] = False,
@@ -639,7 +640,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=DELETE_SNAPSHOT_DESC)
         def delete_snapshot(
             node: Annotated[str, Field(description="Host node name")],
-            vmid: Annotated[str, Field(description="VM or container ID")],
+            vmid: Annotated[VmidField, Field(description="VM or container ID")],
             snapname: Annotated[str, Field(description="Snapshot name to delete")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
@@ -655,7 +656,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=ROLLBACK_SNAPSHOT_DESC)
         def rollback_snapshot(
             node: Annotated[str, Field(description="Host node name")],
-            vmid: Annotated[str, Field(description="VM or container ID")],
+            vmid: Annotated[VmidField, Field(description="VM or container ID")],
             snapname: Annotated[str, Field(description="Snapshot name to restore")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
@@ -724,7 +725,7 @@ class BackupToolsPlugin(RegistryPluginBase):
         def list_backups(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
-            vmid: Annotated[Optional[str], Field(description="Filter by VM/container ID (optional)", default=None)] = None,
+            vmid: Annotated[Optional[VmidField], Field(description="Filter by VM/container ID (optional)", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "list_backups", server.backup_tools.list_backups)(
                 node=node,
@@ -735,7 +736,7 @@ class BackupToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=CREATE_BACKUP_DESC)
         def create_backup(
             node: Annotated[str, Field(description="Node where VM/container runs")],
-            vmid: Annotated[str, Field(description="VM or container ID to backup")],
+            vmid: Annotated[VmidField, Field(description="VM or container ID to backup")],
             storage: Annotated[str, Field(description="Target backup storage")],
             compress: Annotated[str, Field(description="Compression: 0, gzip, lz4, zstd", default="zstd")] = "zstd",
             mode: Annotated[str, Field(description="Mode: snapshot, suspend, stop", default="snapshot")] = "snapshot",
@@ -754,7 +755,7 @@ class BackupToolsPlugin(RegistryPluginBase):
         def restore_backup(
             node: Annotated[str, Field(description="Target node for restore")],
             archive: Annotated[str, Field(description="Backup volume ID from list_backups")],
-            vmid: Annotated[str, Field(description="New VM/container ID")],
+            vmid: Annotated[VmidField, Field(description="New VM/container ID")],
             storage: Annotated[Optional[str], Field(description="Target storage (optional)", default=None)] = None,
             unique: Annotated[bool, Field(description="Generate unique MAC addresses", default=True)] = True,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,

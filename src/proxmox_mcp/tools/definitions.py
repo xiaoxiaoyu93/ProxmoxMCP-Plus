@@ -1,6 +1,37 @@
 """
-Tool descriptions for Proxmox MCP tools.
+Tool descriptions and shared field aliases for Proxmox MCP tools.
 """
+
+from typing import Annotated, Union
+
+from pydantic import AfterValidator, BeforeValidator, WithJsonSchema
+
+
+def _coerce_vmid(value: object) -> object:
+    """Normalize integer-like VM/container IDs to strings."""
+    return str(value) if not isinstance(value, str) else value
+
+
+def _validate_vmid(value: object) -> str:
+    """Validate normalized VM/container IDs."""
+    if not isinstance(value, str) or not value.isdigit() or int(value) < 1:
+        raise ValueError("VM/container ID must be a positive integer")
+    return value
+
+
+VmidField = Annotated[
+    Union[int, str],
+    BeforeValidator(_coerce_vmid),
+    AfterValidator(_validate_vmid),
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "integer", "minimum": 1},
+                {"type": "string", "pattern": r"^\d+$"},
+            ]
+        }
+    ),
+]
 
 LIST_JOBS_DESC = """List tracked long-running jobs created by MCP tools.
 
