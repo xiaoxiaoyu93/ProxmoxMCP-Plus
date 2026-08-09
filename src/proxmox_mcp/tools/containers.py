@@ -4,6 +4,7 @@ from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
 from .base import ProxmoxTool
 from .console.container_manager import ContainerConsoleManager
+from .definitions import VmidField
 
 
 def _b2h(n: Union[int, float, str]) -> str:
@@ -620,7 +621,7 @@ class ContainerTools(ProxmoxTool):
     def create_container(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         ostemplate: str,
         hostname: Optional[str] = None,
         cores: int = 1,
@@ -917,7 +918,7 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("execute_command", e)
 
-    def get_container_config(self, node: str, vmid: str) -> List[Content]:
+    def get_container_config(self, node: str, vmid: VmidField) -> List[Content]:
         """Return the full configuration of an LXC container.
 
         Parameters:
@@ -932,7 +933,7 @@ class ContainerTools(ProxmoxTool):
             return self._err("get_container_config", e)
 
     def set_container_description(
-        self, node: str, vmid: str, description: str
+        self, node: str, vmid: VmidField, description: str
     ) -> List[Content]:
         """Set/replace the description (Notes field in the UI) of an LXC container.
 
@@ -950,7 +951,7 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("set_container_description", e)
 
-    def get_container_ip(self, node: str, vmid: str) -> List[Content]:
+    def get_container_ip(self, node: str, vmid: VmidField) -> List[Content]:
         """Return the current IP address(es) of a running LXC container.
 
         Uses GET /nodes/{node}/lxc/{vmid}/interfaces.
@@ -996,7 +997,7 @@ class ContainerTools(ProxmoxTool):
     def update_container_ssh_keys(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         public_keys: str,
         mode: str = "append",
         approval_token: Optional[str] = None,

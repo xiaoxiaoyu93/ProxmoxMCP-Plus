@@ -15,6 +15,7 @@ The models provide:
 """
 from typing import Optional, Annotated, Literal, Dict, List
 from pydantic import BaseModel, Field, field_validator
+from proxmox_mcp.tools.definitions import VmidField
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -31,7 +32,7 @@ class VMCommand(BaseModel):
     executing commands within a VM via QEMU guest agent.
     """
     node: Annotated[str, Field(description="Host node name (e.g. 'pve1', 'proxmox-node2')")]
-    vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")]
+    vmid: Annotated[VmidField, Field(description="VM ID number (e.g. '100', '101')")]
     command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")]
 
 class ProxmoxConfig(BaseModel):

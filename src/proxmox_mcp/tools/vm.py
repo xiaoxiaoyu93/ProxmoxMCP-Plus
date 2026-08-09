@@ -22,6 +22,7 @@ from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool
 from proxmox_mcp.tools.console.manager import VMConsoleManager
+from proxmox_mcp.tools.definitions import VmidField
 
 
 def _as_dict(maybe: Any) -> Dict:
@@ -106,7 +107,7 @@ class VMTools(ProxmoxTool):
             })
         return result if result else None
 
-    def get_vm_config(self, node: str, vmid: str) -> List[Content]:
+    def get_vm_config(self, node: str, vmid: VmidField) -> List[Content]:
         """Return the full configuration of a QEMU virtual machine.
 
         Parameters:
@@ -121,7 +122,7 @@ class VMTools(ProxmoxTool):
             return self._err("get_vm_config", e)
 
     def set_vm_description(
-        self, node: str, vmid: str, description: str
+        self, node: str, vmid: VmidField, description: str
     ) -> List[Content]:
         """Set/replace the description (Notes field in the UI) of a QEMU VM.
 
@@ -234,7 +235,7 @@ class VMTools(ProxmoxTool):
     def create_vm(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         name: str,
         cpus: int,
         memory: int,
@@ -408,8 +409,8 @@ Next steps:
     def clone_vm(
         self,
         node: str,
-        source_vmid: str,
-        target_vmid: str,
+        source_vmid: VmidField,
+        target_vmid: VmidField,
         name: Optional[str] = None,
         target_node: Optional[str] = None,
         full: bool = True,
@@ -512,7 +513,7 @@ Clone Configuration:
 
         return [Content(type="text", text=result_text)]
 
-    def start_vm(self, node: str, vmid: str) -> List[Content]:
+    def start_vm(self, node: str, vmid: VmidField) -> List[Content]:
         """Start a virtual machine.
         
         Args:
@@ -559,7 +560,7 @@ Clone Configuration:
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"start VM {vmid}", e)
 
-    def stop_vm(self, node: str, vmid: str) -> List[Content]:
+    def stop_vm(self, node: str, vmid: VmidField) -> List[Content]:
         """Stop a virtual machine (force stop).
         
         Args:
@@ -606,7 +607,7 @@ Clone Configuration:
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"stop VM {vmid}", e)
 
-    def shutdown_vm(self, node: str, vmid: str) -> List[Content]:
+    def shutdown_vm(self, node: str, vmid: VmidField) -> List[Content]:
         """Shutdown a virtual machine gracefully.
         
         Args:
@@ -653,7 +654,7 @@ Clone Configuration:
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"shutdown VM {vmid}", e)
 
-    def reset_vm(self, node: str, vmid: str) -> List[Content]:
+    def reset_vm(self, node: str, vmid: VmidField) -> List[Content]:
         """Reset (restart) a virtual machine.
         
         Args:
@@ -700,7 +701,7 @@ Clone Configuration:
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"reset VM {vmid}", e)
 
-    def get_vm_interfaces(self, node: str, vmid: str) -> List[Content]:
+    def get_vm_interfaces(self, node: str, vmid: VmidField) -> List[Content]:
         """Return network interfaces for a VM via QEMU guest agent."""
         try:
             vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
@@ -792,7 +793,7 @@ Clone Configuration:
     async def execute_command(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         command: str,
         approval_token: Optional[str] = None,
     ) -> List[Content]:
@@ -854,7 +855,7 @@ Clone Configuration:
     def delete_vm(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         force: bool = False,
         approval_token: Optional[str] = None,
     ) -> List[Content]:

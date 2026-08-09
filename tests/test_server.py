@@ -7,12 +7,14 @@ import json
 import pytest
 from typing import Any, cast
 from unittest.mock import Mock, patch
+from pydantic import TypeAdapter
 
 from mcp.server.fastmcp.exceptions import ToolError
 
 import proxmox_mcp.server as server_module
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.server import ProxmoxMCPServer
+from proxmox_mcp.tools.definitions import VmidField
 
 
 def _schema_contains_key(value, key):
@@ -21,6 +23,44 @@ def _schema_contains_key(value, key):
     if isinstance(value, list):
         return any(_schema_contains_key(item, key) for item in value)
     return False
+
+
+def _schema_has_vmid_anyof(value: Any) -> bool:
+    if isinstance(value, dict):
+        any_of = value.get("anyOf")
+        if isinstance(any_of, list):
+            has_integer = any(
+                isinstance(item, dict)
+                and item.get("type") == "integer"
+                and item.get("minimum") == 1
+                for item in any_of
+            )
+            has_string = any(
+                isinstance(item, dict)
+                and item.get("type") == "string"
+                and item.get("pattern") == r"^\d+$"
+                for item in any_of
+            )
+            if has_integer and has_string:
+                return True
+        return any(_schema_has_vmid_anyof(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_schema_has_vmid_anyof(item) for item in value)
+    return False
+
+
+def test_vmid_field_accepts_strings_and_integers():
+    ta = TypeAdapter(VmidField)
+
+    assert ta.validate_python(700) == "700"
+    assert ta.validate_python("700") == "700"
+
+    with pytest.raises(Exception):
+        ta.validate_python("abc")
+    with pytest.raises(Exception):
+        ta.validate_python(0)
+    with pytest.raises(Exception):
+        ta.validate_python(-1)
 
 
 @pytest.fixture
@@ -363,6 +403,20 @@ async def test_get_containers_schema_avoids_refs(server):
     assert {"node", "include_stats", "include_raw", "format_style"}.issubset(schema["properties"])
     assert "payload" in schema["properties"]
     assert "payload" not in schema.get("required", [])
+
+
+@pytest.mark.asyncio
+async def test_vmid_tool_schemas_accept_integer_or_numeric_string(server):
+    tools = await server.mcp.list_tools()
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    assert _schema_has_vmid_anyof(tools_by_name["start_vm"].inputSchema["properties"]["vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["clone_vm"].inputSchema["properties"]["source_vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["clone_vm"].inputSchema["properties"]["target_vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["create_container"].inputSchema["properties"]["vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["list_snapshots"].inputSchema["properties"]["vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["create_backup"].inputSchema["properties"]["vmid"])
+    assert _schema_has_vmid_anyof(tools_by_name["list_backups"].inputSchema["properties"]["vmid"])
 
 
 @pytest.mark.asyncio
@@ -1228,6 +1282,19 @@ async def test_start_vm(server, mock_proxmox):
 
 
 @pytest.mark.asyncio
+async def test_start_vm_accepts_integer_vmid(server, mock_proxmox):
+    """Integer VMIDs are normalized to strings before reaching tool methods."""
+    node_api = mock_proxmox.return_value.nodes.return_value
+    node_api.qemu.return_value.status.current.get.return_value = {"status": "stopped"}
+    node_api.qemu.return_value.status.start.post.return_value = "UPID:taskid"
+
+    response = await server.mcp.call_tool("start_vm", {"node": "node1", "vmid": 100})
+
+    assert "start initiated successfully" in response[0].text
+    node_api.qemu.assert_any_call("100")
+
+
+@pytest.mark.asyncio
 async def test_clone_vm(server, mock_proxmox):
     """Test clone_vm tool."""
     proxmox = mock_proxmox.return_value
@@ -1278,6 +1345,44 @@ async def test_clone_vm(server, mock_proxmox):
             "clone_payload": {"newid": 9100, "full": 1, "name": "cloned-vm"},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_clone_vm_accepts_integer_vmids(server, mock_proxmox):
+    proxmox = mock_proxmox.return_value
+
+    source_vm_api = Mock()
+    source_vm_api.status.current.get.return_value = {"status": "stopped", "name": "template-9000"}
+    source_vm_api.clone.post.return_value = "UPID:clone-102"
+
+    target_vm_api = Mock()
+    target_vm_api.config.get.side_effect = Exception("does not exist")
+
+    node_api = Mock()
+
+    def qemu_side_effect(vmid):
+        if str(vmid) == "9000":
+            return source_vm_api
+        if str(vmid) == "9102":
+            return target_vm_api
+        return Mock()
+
+    node_api.qemu.side_effect = qemu_side_effect
+    proxmox.nodes.return_value = node_api
+
+    response = await server.mcp.call_tool(
+        "clone_vm",
+        {
+            "node": "node1",
+            "source_vmid": 9000,
+            "target_vmid": 9102,
+            "name": "cloned-vm",
+            "full": True,
+        },
+    )
+
+    assert "clone initiated successfully" in response[0].text
+    source_vm_api.clone.post.assert_called_once_with(newid=9102, full=1, name="cloned-vm")
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.definitions import VmidField
 
 
 def _as_list(maybe: Any) -> List:
@@ -55,7 +56,7 @@ class BackupTools(ProxmoxTool):
         self,
         node: Optional[str] = None,
         storage: Optional[str] = None,
-        vmid: Optional[str] = None,
+        vmid: Optional[VmidField] = None,
     ) -> List[Content]:
         """List available backups across the cluster.
 
@@ -173,7 +174,7 @@ class BackupTools(ProxmoxTool):
     def create_backup(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         storage: str,
         compress: str = "zstd",
         mode: str = "snapshot",
@@ -246,7 +247,7 @@ class BackupTools(ProxmoxTool):
         self,
         node: str,
         archive: str,
-        vmid: str,
+        vmid: VmidField,
         storage: Optional[str] = None,
         unique: bool = True,
         approval_token: Optional[str] = None,

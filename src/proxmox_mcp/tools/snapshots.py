@@ -3,6 +3,7 @@ from typing import List, Dict, Optional, Any
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.definitions import VmidField
 
 
 def _as_list(maybe: Any) -> List:
@@ -39,7 +40,7 @@ class SnapshotTools(ProxmoxTool):
     def list_snapshots(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         vm_type: str = "qemu",
     ) -> List[Content]:
         """List all snapshots for a VM or container.
@@ -108,7 +109,7 @@ class SnapshotTools(ProxmoxTool):
     def create_snapshot(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         snapname: str,
         description: Optional[str] = None,
         vmstate: bool = False,
@@ -184,7 +185,7 @@ class SnapshotTools(ProxmoxTool):
     def delete_snapshot(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         snapname: str,
         vm_type: str = "qemu",
         approval_token: Optional[str] = None,
@@ -240,7 +241,7 @@ class SnapshotTools(ProxmoxTool):
     def rollback_snapshot(
         self,
         node: str,
-        vmid: str,
+        vmid: VmidField,
         snapname: str,
         vm_type: str = "qemu",
         approval_token: Optional[str] = None,
