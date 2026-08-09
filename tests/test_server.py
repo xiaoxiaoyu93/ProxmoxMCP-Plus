@@ -337,6 +337,7 @@ async def test_list_tools(server):
     assert "get_vms" in tool_names
     assert "get_containers" in tool_names
     assert "execute_vm_command" in tool_names
+    assert "get_vm_interfaces" in tool_names
     assert "clone_vm" in tool_names
     assert "update_container_resources" in tool_names
     assert "execute_container_command" not in tool_names
@@ -967,6 +968,108 @@ async def test_get_cluster_status(server, mock_proxmox):
     assert "Nodes: 2" in text
 
 @pytest.mark.asyncio
+async def test_get_vm_interfaces(server, mock_proxmox):
+    """get_vm_interfaces returns interfaces and extracts primary_ip."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
+    vm_api.agent.return_value.get.return_value = [
+        {
+            "name": "lo",
+            "ip-addresses": [
+                {"ip-address-type": "ipv4", "ip-address": "127.0.0.1", "prefix": 8},
+            ],
+        },
+        {
+            "name": "eth0",
+            "hardware-address": "52:54:00:12:34:56",
+            "ip-addresses": [
+                {"ip-address-type": "ipv4", "ip-address": "10.1.0.100", "prefix": 24},
+                {"ip-address-type": "ipv6", "ip-address": "fe80::1", "prefix": 64},
+            ],
+        },
+    ]
+    vm_api.config.get.return_value = {"name": "ubuntu-100"}
+
+    response = await server.mcp.call_tool(
+        "get_vm_interfaces", {"node": "node1", "vmid": "100"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "100"
+    assert result["name"] == "ubuntu-100"
+    assert result["primary_ip"] == "10.1.0.100"
+    iface_names = [i["name"] for i in result["interfaces"]]
+    assert "lo" not in iface_names
+    assert "eth0" in iface_names
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_no_ipv4(server, mock_proxmox):
+    """get_vm_interfaces returns primary_ip=None when only IPv6 exists."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
+    vm_api.agent.return_value.get.return_value = [
+        {
+            "name": "eth0",
+            "ip-addresses": [
+                {"ip-address-type": "ipv6", "ip-address": "fe80::1", "prefix": 64},
+            ],
+        },
+    ]
+    vm_api.config.get.return_value = {"name": "vm-100"}
+
+    response = await server.mcp.call_tool(
+        "get_vm_interfaces", {"node": "node1", "vmid": "100"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["primary_ip"] is None
+    assert result["interfaces"][0]["name"] == "eth0"
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_missing_parameters(server):
+    """get_vm_interfaces raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_vm_interfaces", {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"node": "node1"},
+        {"vmid": "100"},
+    ],
+)
+async def test_get_vm_interfaces_partial_missing_parameters(server, payload):
+    """get_vm_interfaces raises ToolError when one required field is missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_vm_interfaces", payload)
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_vm_not_running(server, mock_proxmox):
+    """get_vm_interfaces fails when VM is not running."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "stopped"}
+
+    with pytest.raises(ToolError, match="not running"):
+        await server.mcp.call_tool("get_vm_interfaces", {"node": "node1", "vmid": "100"})
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_guest_agent_unavailable(server, mock_proxmox):
+    """get_vm_interfaces fails with clear error when guest agent is unavailable."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
+    vm_api.agent.return_value.get.side_effect = Exception("QEMU guest agent is not running")
+
+    with pytest.raises(ToolError, match="guest agent unavailable"):
+        await server.mcp.call_tool("get_vm_interfaces", {"node": "node1", "vmid": "100"})
+
+
+@pytest.mark.asyncio
 async def test_execute_vm_command_success(server, mock_proxmox):
     """Test successful VM command execution."""
     # Mock VM status check
@@ -1175,6 +1278,54 @@ async def test_clone_vm(server, mock_proxmox):
             "clone_payload": {"newid": 9100, "full": 1, "name": "cloned-vm"},
         },
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "permission_error",
+    [
+        "permission denied",
+        "permission check failed",
+        "forbidden",
+        "403 forbidden",
+    ],
+)
+async def test_clone_vm_ignores_target_probe_permission_denied(server, mock_proxmox, permission_error):
+    """clone_vm should continue when target VM pre-check returns permission denied."""
+    proxmox = mock_proxmox.return_value
+
+    source_vm_api = Mock()
+    source_vm_api.status.current.get.return_value = {"status": "stopped", "name": "template-9000"}
+    source_vm_api.clone.post.return_value = "UPID:clone-101"
+
+    target_vm_api = Mock()
+    target_vm_api.config.get.side_effect = Exception(permission_error)
+
+    node_api = Mock()
+
+    def qemu_side_effect(vmid):
+        if str(vmid) == "9000":
+            return source_vm_api
+        if str(vmid) == "9101":
+            return target_vm_api
+        return Mock()
+
+    node_api.qemu.side_effect = qemu_side_effect
+    proxmox.nodes.return_value = node_api
+
+    response = await server.mcp.call_tool(
+        "clone_vm",
+        {
+            "node": "node1",
+            "source_vmid": "9000",
+            "target_vmid": "9101",
+            "name": "cloned-vm",
+            "full": True,
+        },
+    )
+
+    assert "clone initiated successfully" in response[0].text
+    source_vm_api.clone.post.assert_called_once_with(newid=9101, full=1, name="cloned-vm")
 
 
 @pytest.mark.asyncio

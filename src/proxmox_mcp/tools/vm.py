@@ -15,6 +15,7 @@ This module provides tools for managing and interacting with Proxmox VMs:
 The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
+import ipaddress
 import json
 from typing import Any, Dict, List, Optional
 from mcp.types import TextContent as Content
@@ -434,7 +435,21 @@ Next steps:
         except ValueError:
             raise
         except Exception as e:
-            if "does not exist" not in str(e).lower() and "not found" not in str(e).lower():
+            error_msg = str(e).lower()
+            status_code = getattr(e, "status_code", None)
+            if status_code is None:
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+            target_missing = "does not exist" in error_msg or "not found" in error_msg
+            target_permission_denied = (
+                status_code == 403
+                or "permission denied" in error_msg
+                or "permission check failed" in error_msg
+                or "forbidden" in error_msg
+                or "http 403" in error_msg
+                or "status code: 403" in error_msg
+                or "403 forbidden" in error_msg
+            )
+            if not target_missing and not target_permission_denied:
                 self._handle_error(f"check target VM {target_vmid}", e)
 
         clone_payload: dict[str, Any] = {
@@ -684,6 +699,95 @@ Clone Configuration:
             if "does not exist" in str(e).lower() or "not found" in str(e).lower():
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"reset VM {vmid}", e)
+
+    def get_vm_interfaces(self, node: str, vmid: str) -> List[Content]:
+        """Return network interfaces for a VM via QEMU guest agent."""
+        try:
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            if vm_status.get("status") != "running":
+                raise ValueError(
+                    f"VM {vmid} is not running; qemu-guest-agent network data is only available when running"
+                )
+
+            raw_interfaces = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+            config = self.proxmox.nodes(node).qemu(vmid).config.get()
+            vm_name = config.get("name") or f"vm-{vmid}"
+
+            if isinstance(raw_interfaces, dict):
+                interfaces_raw = raw_interfaces.get("result") or raw_interfaces.get("interfaces") or []
+            elif isinstance(raw_interfaces, list):
+                interfaces_raw = raw_interfaces
+            else:
+                interfaces_raw = []
+
+            interfaces: List[Dict[str, Any]] = []
+            primary_ip: Optional[str] = None
+            for iface in interfaces_raw:
+                if not isinstance(iface, dict):
+                    continue
+                iface_name = iface.get("name") or iface.get("ifname")
+                if iface_name == "lo":
+                    continue
+
+                entry: Dict[str, Any] = {"name": iface_name}
+                hardware_address = iface.get("hardware-address") or iface.get("hardware_address")
+                if hardware_address:
+                    entry["hardware_address"] = hardware_address
+
+                ip_rows: List[Dict[str, Any]] = []
+                ip_addresses = iface.get("ip-addresses") or iface.get("ip_addresses") or []
+                if isinstance(ip_addresses, list):
+                    for ip_addr in ip_addresses:
+                        if not isinstance(ip_addr, dict):
+                            continue
+                        ip_value = ip_addr.get("ip-address") or ip_addr.get("ip_address")
+                        if not ip_value:
+                            continue
+                        ip_type = ip_addr.get("ip-address-type") or ip_addr.get("ip_address_type")
+                        prefix = ip_addr.get("prefix")
+                        ip_entry: Dict[str, Any] = {"ip_address": ip_value}
+                        if ip_type:
+                            ip_entry["ip_address_type"] = ip_type
+                        if prefix is not None:
+                            ip_entry["prefix"] = prefix
+                        ip_rows.append(ip_entry)
+                        if primary_ip is None:
+                            try:
+                                parsed_ip = ipaddress.ip_address(ip_value)
+                            except ValueError:
+                                self.logger.debug(
+                                    "Skipping malformed guest-agent IP '%s' for VM %s interface %s",
+                                    ip_value,
+                                    vmid,
+                                    iface_name,
+                                )
+                                parsed_ip = None
+                            if (
+                                isinstance(parsed_ip, ipaddress.IPv4Address)
+                                and not parsed_ip.is_loopback
+                                and (ip_type == "ipv4" or ip_type is None)
+                            ):
+                                primary_ip = ip_value
+
+                entry["ip_addresses"] = ip_rows
+                interfaces.append(entry)
+
+            result = {
+                "vmid": vmid,
+                "name": vm_name,
+                "interfaces": interfaces,
+                "primary_ip": primary_ip,
+            }
+            return self._format_response(result)
+        except ValueError:
+            raise
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "guest agent" in error_msg or "qemu-ga" in error_msg:
+                raise ValueError(f"QEMU guest agent unavailable for VM {vmid} on node {node}")
+            if "does not exist" in error_msg or "not found" in error_msg:
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"get VM interfaces for {vmid}", e)
 
     async def execute_command(
         self,
